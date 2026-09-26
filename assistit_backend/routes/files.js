@@ -17,6 +17,23 @@ const minioClient = new Minio.Client({
 });
 
 const BUCKET = 'assistit-files';
+const MINIO_PUBLIC_BASE = (
+  process.env.MINIO_PUBLIC_URL ||
+  `http://${process.env.MINIO_ENDPOINT || 'localhost'}:${process.env.MINIO_PORT || 9000}`
+).replace(/\/+$/, '');
+
+// Certains sélecteurs de fichiers renvoient le nom déjà encodé ("New%20cours.pdf").
+function decodeName(name) {
+  try {
+    return decodeURIComponent(name);
+  } catch (err) {
+    return name;
+  }
+}
+
+// URL d'objet correctement encodée (espaces -> %20) : utilisable par Linking.openURL
+// et résolue telle quelle par MinIO (décodage serveur = clé stockée).
+const objectUrl = (key) => `${MINIO_PUBLIC_BASE}/${BUCKET}/${encodeURIComponent(key)}`;
 
 // Multer pour upload en mémoire
 const upload = multer({
@@ -58,20 +75,29 @@ router.post('/upload/:ticketId', authMiddleware, upload.single('file'), async (r
       return res.status(400).json({ error: 'Aucun fichier' });
     }
 
+    const access = await pool.query(
+      'SELECT 1 FROM tickets WHERE id = $1 AND (client_id = $2 OR technicien_id = $2)',
+      [req.params.ticketId, req.user.id],
+    );
+    if (access.rowCount === 0) {
+      return res.status(403).json({ error: 'Accès refusé' });
+    }
+
     const timestamp = Date.now();
-    const fileName = `${timestamp}-${req.file.originalname}`;
+    const originalName = decodeName(req.file.originalname) || 'fichier';
+    const fileName = `${timestamp}-${originalName}`;
 
     await minioClient.putObject(BUCKET, fileName, req.file.buffer, req.file.size, {
       'Content-Type': req.file.mimetype,
     });
 
-    const fileUrl = `http://${process.env.MINIO_ENDPOINT}:${process.env.MINIO_PORT}/${BUCKET}/${fileName}`;
+    const fileUrl = objectUrl(fileName);
 
     // Enregistrer en base
     const result = await pool.query(
       `INSERT INTO fichiers (ticket_id, uploader_id, cle_objet_minio, nom_original, taille_octets)
        VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [req.params.ticketId, req.user.id, fileName, req.file.originalname, req.file.size]
+      [req.params.ticketId, req.user.id, fileName, originalName, req.file.size]
     );
 
     // Notifier via socket
@@ -97,6 +123,14 @@ router.post('/upload/:ticketId', authMiddleware, upload.single('file'), async (r
 // Lister les fichiers d'un ticket
 router.get('/:ticketId', authMiddleware, async (req, res) => {
   try {
+    const access = await pool.query(
+      'SELECT 1 FROM tickets WHERE id = $1 AND (client_id = $2 OR technicien_id = $2)',
+      [req.params.ticketId, req.user.id],
+    );
+    if (access.rowCount === 0) {
+      return res.status(403).json({ error: 'Accès refusé' });
+    }
+
     const result = await pool.query(
       `SELECT f.*, u.nom as uploader_nom
        FROM fichiers f
@@ -109,7 +143,7 @@ router.get('/:ticketId', authMiddleware, async (req, res) => {
     // Ajouter l'URL complète
     const files = result.rows.map((f) => ({
       ...f,
-      url: `http://${process.env.MINIO_ENDPOINT}:${process.env.MINIO_PORT}/${BUCKET}/${f.cle_objet_minio}`,
+      url: objectUrl(f.cle_objet_minio),
     }));
 
     res.json(files);
@@ -132,6 +166,14 @@ router.delete('/:fileId', authMiddleware, async (req, res) => {
     }
 
     const file = result.rows[0];
+
+    const access = await pool.query(
+      'SELECT 1 FROM tickets WHERE id = $1 AND (client_id = $2 OR technicien_id = $2)',
+      [file.ticket_id, req.user.id],
+    );
+    if (access.rowCount === 0) {
+      return res.status(403).json({ error: 'Accès refusé' });
+    }
 
     // Supprimer de MinIO
     await minioClient.removeObject(BUCKET, file.cle_objet_minio);

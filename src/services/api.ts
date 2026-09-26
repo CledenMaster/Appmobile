@@ -22,7 +22,7 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     if (error.response?.status === 401) {
-      await AsyncStorage.multiRemove(['token', 'user']);
+      await AsyncStorage.removeMany(['token', 'user']);
     }
     return Promise.reject(error);
   }
@@ -59,9 +59,10 @@ export const filesAPI = {
   upload: (ticketId: number, formData: FormData) =>
     api.post(`/api/files/upload/${ticketId}`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000, // upload possible jusqu'à 50 Mo
     }),
   getByTicket: (ticketId: number) => api.get(`/api/files/${ticketId}`),
-  delete: (fileId: number) => api.delete(`/api/files/${fileId}`),
+  remove: (fileId: number) => api.delete(`/api/files/${fileId}`),
 };
 
 // ===== Interventions =====

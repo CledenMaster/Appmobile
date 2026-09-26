@@ -21,7 +21,7 @@ const NewTicketScreen = ({ navigation }: any) => {
     try {
       await ticketsAPI.create({ categorie, description: description.trim() });
       Alert.alert('Succès', 'Demande envoyée !', [{ text: 'OK', onPress: () => navigation.goBack() }]);
-    } catch (e) {
+    } catch {
       Alert.alert('Erreur', "Impossible de créer la demande");
     } finally {
       setLoading(false);
@@ -40,7 +40,7 @@ const NewTicketScreen = ({ navigation }: any) => {
         {CATEGORIES.map((cat) => (
           <TouchableOpacity key={cat} style={[styles.catBtn, categorie === cat && styles.catActive]}
             onPress={() => setCategorie(cat)}>
-            <Text style={[styles.catText, categorie === cat && { color: '#fff' }]}>{cat}</Text>
+            <Text style={[styles.catText, categorie === cat && styles.catTextActive]}>{cat}</Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -66,6 +66,7 @@ const styles = StyleSheet.create({
   catBtn: { backgroundColor: '#16213e', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#333' },
   catActive: { borderColor: '#e94560', backgroundColor: '#1f1f3a' },
   catText: { color: '#888', fontSize: 13 },
+  catTextActive: { color: '#fff' },
   input: { backgroundColor: '#16213e', borderRadius: 10, padding: 15, color: '#fff', borderWidth: 1, borderColor: '#333' },
   textArea: { height: 150, paddingTop: 15 },
   button: { backgroundColor: '#e94560', borderRadius: 10, padding: 15, alignItems: 'center', marginTop: 25 },

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, ScrollView,
 } from 'react-native';
@@ -19,26 +19,26 @@ const TicketDetailScreen = ({ route, navigation }: any) => {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
 
-  const loadTicket = async () => {
+  const loadTicket = useCallback(async () => {
     try {
       const res = await ticketsAPI.getById(ticketId);
       setTicket(res.data);
-    } catch (e) {
+    } catch {
       Alert.alert('Erreur', 'Ticket non trouvé');
       navigation.goBack();
     } finally {
       setLoading(false);
     }
-  };
+  }, [ticketId, navigation]);
 
-  useEffect(() => { loadTicket(); }, [ticketId]);
+  useEffect(() => { loadTicket(); }, [loadTicket]);
 
   const handleAccept = async () => {
     setActionLoading(true);
     try {
       await ticketsAPI.accept(ticketId);
-      loadTicket();
-    } catch (e) {
+      await loadTicket();
+    } catch {
       Alert.alert('Erreur', "Impossible d'accepter");
     } finally {
       setActionLoading(false);
@@ -52,8 +52,8 @@ const TicketDetailScreen = ({ route, navigation }: any) => {
         text: 'Oui', onPress: async () => {
           try {
             await ticketsAPI.close(ticketId);
-            loadTicket();
-          } catch (e) { Alert.alert('Erreur'); }
+            await loadTicket();
+          } catch { Alert.alert('Erreur'); }
         }
       },
     ]);
@@ -63,10 +63,12 @@ const TicketDetailScreen = ({ route, navigation }: any) => {
   if (!ticket) return null;
 
   const isTechnicien = user?.role === 'technicien';
-  const canCall = ticket.status === 'en_cours';
+  // L'autre partie du ticket = interlocuteur des appels
+  const targetUserId = isTechnicien ? ticket.client_id : ticket.technicien_id;
+  const canCall = ticket.status === 'en_cours' && !!targetUserId;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 20 }}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={[styles.statusBar, { backgroundColor: COLORS[ticket.status] || '#888' }]}>
         <Text style={styles.statusText}>{ticket.status.replace('_', ' ')}</Text>
       </View>
@@ -84,29 +86,37 @@ const TicketDetailScreen = ({ route, navigation }: any) => {
       </View>
 
       <View style={styles.actions}>
-        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#17a2b8' }]}
+        <TouchableOpacity style={[styles.actionBtn, styles.actionChat]}
           onPress={() => navigation.navigate('Chat', { ticketId: ticket.id })}>
           <Icon name="chat" size={20} color="#fff" />
           <Text style={styles.actionText}>Chat</Text>
         </TouchableOpacity>
 
         {canCall && (
-          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#28a745' }]}
-            onPress={() => navigation.navigate('Call', { ticketId: ticket.id, callType: 'video' })}>
-            <Icon name="video" size={20} color="#fff" />
-            <Text style={styles.actionText}>Appel vidéo</Text>
-          </TouchableOpacity>
+          <>
+            <TouchableOpacity style={[styles.actionBtn, styles.actionAudio]}
+              onPress={() => navigation.navigate('Call', { ticketId: ticket.id, callType: 'audio', targetUserId })}>
+              <Icon name="phone" size={20} color="#fff" />
+              <Text style={styles.actionText}>Appel audio</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={[styles.actionBtn, styles.actionCall]}
+              onPress={() => navigation.navigate('Call', { ticketId: ticket.id, callType: 'video', targetUserId })}>
+              <Icon name="video" size={20} color="#fff" />
+              <Text style={styles.actionText}>Appel vidéo</Text>
+            </TouchableOpacity>
+          </>
         )}
 
         {isTechnicien && ticket.status === 'en_attente' && (
-          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#e94560' }]}
+          <TouchableOpacity style={[styles.actionBtn, styles.actionAccept]}
             onPress={handleAccept} disabled={actionLoading}>
             {actionLoading ? <ActivityIndicator color="#fff" /> : <><Icon name="check" size={20} color="#fff" /><Text style={styles.actionText}>Accepter</Text></>}
           </TouchableOpacity>
         )}
 
         {ticket.status !== 'resolu' && (
-          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#6c757d' }]} onPress={handleClose}>
+          <TouchableOpacity style={[styles.actionBtn, styles.actionClose]} onPress={handleClose}>
             <Icon name="close" size={20} color="#fff" />
             <Text style={styles.actionText}>Clôturer</Text>
           </TouchableOpacity>
@@ -132,6 +142,7 @@ const infoStyles = StyleSheet.create({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#1a1a2e' },
+  content: { padding: 20 },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#1a1a2e' },
   statusBar: { padding: 12, borderRadius: 10, marginBottom: 15 },
   statusText: { color: '#fff', fontSize: 16, fontWeight: 'bold', textTransform: 'capitalize' },
@@ -140,6 +151,11 @@ const styles = StyleSheet.create({
   desc: { color: '#ccc', fontSize: 14, lineHeight: 22 },
   actions: { gap: 12, marginBottom: 30 },
   actionBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 14, borderRadius: 10 },
+  actionChat: { backgroundColor: '#17a2b8' },
+  actionAudio: { backgroundColor: '#007bff' },
+  actionCall: { backgroundColor: '#28a745' },
+  actionAccept: { backgroundColor: '#e94560' },
+  actionClose: { backgroundColor: '#6c757d' },
   actionText: { color: '#fff', fontSize: 15, fontWeight: 'bold' },
 });
 

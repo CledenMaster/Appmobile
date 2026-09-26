@@ -34,6 +34,10 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Assist'IT utilise la caméra pour les appels audio et vidéo de support.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Assist'IT utilise le micro pour les appels audio et vidéo de support.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string></string>
 	<key>UILaunchStoryboardName</key>

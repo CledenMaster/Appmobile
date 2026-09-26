@@ -135,21 +135,41 @@ router.post('/:id/accept', authMiddleware, async (req, res) => {
 // Clôturer un ticket
 router.post('/:id/close', authMiddleware, async (req, res) => {
   try {
+    const existing = await pool.query(
+      'SELECT id, client_id, technicien_id FROM tickets WHERE id = $1',
+      [req.params.id],
+    );
+
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Ticket non trouvé' });
+    }
+
+    const ticket = existing.rows[0];
+    const isOwner = req.user.role === 'client' && ticket.client_id === req.user.id;
+    const isAssignedTechnician =
+      req.user.role === 'technicien' && ticket.technicien_id === req.user.id;
+
+    if (!isOwner && !isAssignedTechnician) {
+      return res.status(403).json({ error: 'Accès refusé' });
+    }
+
     const result = await pool.query(
-      `UPDATE tickets SET status = 'resolu', updated_at = NOW() 
-       WHERE id = $1 
+      `UPDATE tickets SET status = 'resolu', updated_at = NOW()
+       WHERE id = $1 AND status <> 'resolu'
        RETURNING *`,
       [req.params.id]
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Ticket non trouvé' });
+      return res.status(409).json({ error: 'Ticket déjà clôturé' });
     }
 
-    // Enregistrer l'intervention
+    // Enregistrer l'intervention « chat » couvrant toute la durée du ticket,
+    // avec une durée réelle (sinon l'historique affiche une durée vide).
     await pool.query(
-      `INSERT INTO interventions (ticket_id, type, date_debut, date_fin) 
-       VALUES ($1, 'chat', $2, NOW())`,
+      `INSERT INTO interventions (ticket_id, type, date_debut, date_fin, duree_secondes)
+       VALUES ($1, 'chat', $2, NOW(),
+               GREATEST(EXTRACT(EPOCH FROM (NOW() - $2::timestamptz))::int, 0))`,
       [req.params.id, result.rows[0].created_at]
     );
 

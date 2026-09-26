@@ -72,6 +72,14 @@ router.post('/start', authMiddleware, async (req, res) => {
   try {
     const { ticket_id, type } = req.body;
 
+    const access = await pool.query(
+      'SELECT 1 FROM tickets WHERE id = $1 AND (client_id = $2 OR technicien_id = $2)',
+      [ticket_id, req.user.id],
+    );
+    if (access.rowCount === 0) {
+      return res.status(403).json({ error: 'Accès refusé' });
+    }
+
     const result = await pool.query(
       `INSERT INTO interventions (ticket_id, type, date_debut) 
        VALUES ($1, $2, NOW()) 
@@ -89,6 +97,16 @@ router.post('/start', authMiddleware, async (req, res) => {
 // Enregistrer la fin d'une intervention
 router.post('/:id/end', authMiddleware, async (req, res) => {
   try {
+    const access = await pool.query(
+      `SELECT 1 FROM interventions i
+       JOIN tickets t ON i.ticket_id = t.id
+       WHERE i.id = $1 AND (t.client_id = $2 OR t.technicien_id = $2)`,
+      [req.params.id, req.user.id],
+    );
+    if (access.rowCount === 0) {
+      return res.status(403).json({ error: 'Accès refusé' });
+    }
+
     const result = await pool.query(
       `UPDATE interventions SET date_fin = NOW(), 
        duree_secondes = EXTRACT(EPOCH FROM (NOW() - date_debut))

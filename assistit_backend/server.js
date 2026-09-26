@@ -19,6 +19,7 @@ const server = http.createServer(app);
 
 // ===== Socket.IO =====
 const io = new Server(server, { cors: { origin: '*' } });
+app.set('io', io);
 
 // Stocker les utilisateurs connectés : userId -> Set<socketId>
 const connectedUsers = new Map();
@@ -49,10 +50,31 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Rejoindre la room d'un ticket
-  socket.on('join-ticket', (ticketId) => {
-    socket.join(`ticket-${ticketId}`);
-    console.log(`Socket ${socket.id} rejoint ticket-${ticketId}`);
+  // Rejoindre la room d'un ticket (après vérification JWT et accès au ticket)
+  socket.on('join-ticket', async (ticketId) => {
+    if (!socket.userId) {
+      socket.emit('ticket-error', { error: 'Authentification requise' });
+      return;
+    }
+
+    try {
+      const result = await pool.query(
+        `SELECT 1 FROM tickets
+         WHERE id = $1 AND (client_id = $2 OR technicien_id = $2)`,
+        [ticketId, socket.userId],
+      );
+
+      if (result.rowCount === 0) {
+        socket.emit('ticket-error', { error: 'Accès au ticket refusé' });
+        return;
+      }
+
+      socket.join(`ticket-${ticketId}`);
+      console.log(`Socket ${socket.id} rejoint ticket-${ticketId}`);
+    } catch (err) {
+      console.error('Erreur join-ticket:', err.message);
+      socket.emit('ticket-error', { error: 'Erreur lors de la jointure' });
+    }
   });
 
   // Quitter la room d'un ticket
@@ -62,7 +84,14 @@ io.on('connection', (socket) => {
 
   // Messages de chat
   socket.on('chat-message', ({ ticketId, message }) => {
-    io.to(`ticket-${ticketId}`).emit('chat-message', message);
+    if (!socket.userId || !socket.rooms.has(`ticket-${ticketId}`)) return;
+    if (!message || typeof message.contenu !== 'string' || !message.contenu.trim()) return;
+
+    io.to(`ticket-${ticketId}`).emit('chat-message', {
+      ...message,
+      expediteur_id: socket.userId,
+      contenu: message.contenu.trim(),
+    });
   });
 
   // Indicateur de frappe
@@ -74,31 +103,51 @@ io.on('connection', (socket) => {
     socket.to(`ticket-${ticketId}`).emit('stop-typing', { userId });
   });
 
-  // Appels audio/vidéo - Signalisation WebRTC
-  socket.on('call-user', ({ targetUserId, signal, callType }) => {
-    io.to(`user-${targetUserId}`).emit('incoming-call', {
-      callerId: socket.userId,
-      signal,
-      callType,
-    });
+  // Appels audio/vidéo — sonnerie via Socket.IO.
+  // La signalisation WebRTC (offre/réponse/ICE) passe par PeerJS, pas par ici.
+  socket.on('call-user', async ({ targetUserId, callType, ticketId }) => {
+    if (!socket.userId || !targetUserId || !ticketId) return;
+    try {
+      // Vérifier que les deux utilisateurs sont bien les membres du ticket
+      const result = await pool.query(
+        `SELECT 1 FROM tickets
+         WHERE id = $1
+           AND ((client_id = $2 AND technicien_id = $3) OR (client_id = $3 AND technicien_id = $2))`,
+        [ticketId, socket.userId, targetUserId],
+      );
+      if (result.rowCount === 0) return;
+
+      io.to(`user-${targetUserId}`).emit('incoming-call', {
+        callerId: socket.userId,
+        callType,
+        ticketId: Number(ticketId),
+      });
+    } catch (err) {
+      console.error('Erreur call-user:', err.message);
+    }
   });
 
-  socket.on('accept-call', ({ targetUserId, signal }) => {
+  socket.on('accept-call', ({ targetUserId, ticketId }) => {
+    if (!socket.userId || !targetUserId) return;
     io.to(`user-${targetUserId}`).emit('call-accepted', {
       accepterId: socket.userId,
-      signal,
+      ticketId,
     });
   });
 
-  socket.on('reject-call', ({ targetUserId }) => {
+  socket.on('reject-call', ({ targetUserId, ticketId }) => {
+    if (!socket.userId || !targetUserId) return;
     io.to(`user-${targetUserId}`).emit('call-rejected', {
       rejecterId: socket.userId,
+      ticketId,
     });
   });
 
-  socket.on('end-call', ({ targetUserId }) => {
+  socket.on('end-call', ({ targetUserId, ticketId }) => {
+    if (!socket.userId || !targetUserId) return;
     io.to(`user-${targetUserId}`).emit('call-ended', {
       enderId: socket.userId,
+      ticketId,
     });
   });
 
@@ -131,7 +180,29 @@ io.on('connection', (socket) => {
 });
 
 // ===== PeerJS Server =====
-const peerServer = ExpressPeerServer(server, { path: '/peerjs' });
+// Monté sur /peerjs avec un sous-path '/' → HTTP: /peerjs/:key/id, WS: /peerjs/peerjs
+// (sans ce '/', les chemins se doubleraient et le client PeerJS recevait des 404)
+//
+// createWebSocketServer : ws({server}) ABORTE en 400 tout upgrade dont le chemin
+// ne correspond pas à SIEN — le listener ws de peer partageant le serveur HTTP
+// avec socket.io, il détruisait les upgrades /socket.io → WebSocket impossible
+// pour le chat (polling OK, peer OK, socket.io mort). En mode noServer, on ne
+// traite que /peerjs/peerjs et on laisse les autres upgrades tranquilles.
+const peerServer = ExpressPeerServer(server, {
+  path: '/',
+  createWebSocketServer: (wsOptions) => {
+    const { WebSocketServer } = require('ws');
+    const wss = new WebSocketServer({ ...wsOptions, server: null, noServer: true });
+    server.on('upgrade', (req, socket, head) => {
+      const url = req.url || '';
+      const idx = url.indexOf('?');
+      const pathname = idx === -1 ? url : url.slice(0, idx);
+      if (pathname !== wsOptions.path) return;
+      wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+    });
+    return wss;
+  },
+});
 app.use('/peerjs', peerServer);
 
 // ===== PostgreSQL =====

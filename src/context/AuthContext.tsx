@@ -85,14 +85,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     isLoggingOut.current = true;
 
     // 1. Déconnecter socket et peer en premier
-    try { socketService.disconnect(); } catch (_) {}
-    try { peerService.destroy(); } catch (_) {}
+    try { socketService.disconnect(); } catch {}
+    try { peerService.destroy(); } catch {}
 
     // 2. Nettoyer le stockage
     try {
       await AsyncStorage.removeItem('token');
       await AsyncStorage.removeItem('user');
-    } catch (_) {}
+    } catch {}
 
     // 3. Mettre à jour l'état en dernier
     setUser(null);

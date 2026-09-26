@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl,
 } from 'react-native';
@@ -55,7 +55,7 @@ const HomeScreen = ({ navigation }: any) => {
         data={tickets}
         keyExtractor={(item) => item.id.toString()}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#e94560" />}
-        contentContainerStyle={{ padding: 15 }}
+        contentContainerStyle={styles.listContent}
         renderItem={({ item }) => (
           <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('TicketDetail', { ticketId: item.id })}>
             <View style={styles.cardHeader}>
@@ -83,6 +83,7 @@ const HomeScreen = ({ navigation }: any) => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#1a1a2e' },
+  listContent: { padding: 15 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, paddingBottom: 10 },
   greeting: { fontSize: 22, fontWeight: 'bold', color: '#fff' },
   role: { fontSize: 12, color: '#888', backgroundColor: '#16213e', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 15 },

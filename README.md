@@ -1,97 +1,115 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# AssistIT
 
-# Getting Started
+Plateforme d'assistance informatique à distance : les clients déposent des demandes d'assistance, les techniciens les acceptent et interviennent en direct — chat, appel audio/vidéo, partage de fichiers et partage d'écran — avec historique complet des interventions.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+## Fonctionnalités
 
-## Step 1: Start Metro
+- **Comptes** : client et technicien (inscription autonome des techniciens, pour les besoins des tests).
+- **Demandes d'assistance** : création de tickets, file d'attente, acceptation par un technicien, résolution.
+- **Chat en temps réel** (Socket.IO, authentification JWT sur le socket).
+- **Appels audio / vidéo** : sonnerie via Socket.IO (avec vérification d'appartenance au ticket), médias WebRTC via PeerJS.
+- **Partage de fichiers** : upload MinIO (bucket `assistit-files`), listing par ticket.
+- **Partage d'écran** : second flux WebRTC (`getDisplayMedia`), enregistré comme intervention `partage_ecran`.
+- **Historique des interventions** : chat, audio, vidéo, partage d'écran avec durées réelles.
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+## Architecture
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+| Couche | Technologie |
+|---|---|
+| Application mobile | React Native CLI (TypeScript), react-native-webrtc |
+| API + temps réel | Node.js, Express, Socket.IO, PeerJS (signalisation WebRTC) |
+| Données | PostgreSQL (schéma `schema.sql`) |
+| Fichiers | MinIO (S3) |
+| Infra locale | Docker Desktop (conteneurs `postgres`, `minio`) |
 
-```sh
-# Using npm
-npm start
+Le backend sert l'API et le signaliseur PeerJS sur le **même port (4000)** :
 
-# OR using Yarn
-yarn start
+- HTTP PeerJS : `GET /peerjs/peerjs/id`
+- WebSocket PeerJS : `ws://<host>:4000/peerjs/peerjs?key=peerjs`
+- Socket.IO : `ws://<host>:4000/socket.io` (WebSocket)
+
+## Démarrage
+
+### 1. Base de données et stockage (Docker)
+
+```powershell
+docker start postgres minio   # déjà créés ; sinon voir docker-compose du projet
 ```
 
-## Step 2: Build and run your app
+Appliquer le schéma (une fois) :
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
-
-### Android
-
-```sh
-# Using npm
-npm run android
-
-# OR using Yarn
-yarn android
+```powershell
+docker exec -i postgres psql -U assistit -d assistit_db -f - < schema.sql
 ```
 
-### iOS
+### 2. Backend
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
-
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
-
-```sh
-bundle install
+```powershell
+cd assistit_backend
+# fichier .env requis : DATABASE_URL, JWT_SECRET, MINIO_* (voir .env fourni)
+npm install
+npm start          # http://localhost:4000
 ```
 
-Then, and every time you update your native dependencies, run:
+### 3. Application mobile
 
-```sh
-bundle exec pod install
+```powershell
+npm install
+# Hôte unique "localhost" (src/config/api.ts + MINIO_PUBLIC_URL) : lancer les
+# tunnels AVANT l'app, pour l'émulateur comme pour un téléphone physique :
+powershell -ExecutionPolicy Bypass -File setup_tunnels.ps1   # reverse 4000/9000/8081
+npx react-native run-android    # ou run-ios
 ```
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+> Sous PowerShell, préférer `npm.cmd` / `npx.cmd` si l'exécution de scripts est bloquée.
 
-```sh
-# Using npm
-npm run ios
+#### Windows : chemin du projet avec caractères non-ASCII (« Projet par défaut »)
 
-# OR using Yarn
-yarn ios
+Le projet vit dans un dossier contenant un `é` ; trois réglages sont donc nécessaires (déjà appliqués) :
+
+- `android/gradle.properties` → `org.gradle.jvmargs` inclut `-Dfile.encoding=UTF-8` : sans quoi le daemon Gradle décode en Cp1252 la sortie UTF-8 de `npx @react-native-community/cli config`, les chemins d'autolinking deviennent `dÃ©faut` et Gradle échoue avec « Configuring project ':…' without an existing directory » alors que le dossier existe.
+- `android/gradle.properties` → `android.overridePathCheck=true` : bypass du contrôle AGP sur les chemins non-ASCII (b.android.com/95744).
+- `android/local.properties` → `sdk.dir` pointant vers le SDK Android (sinon « SDK location not found »).
+
+En dernier recours (si un outil de la chaîne casse encore sur l'encodage), la solution robuste est de renommer le dossier parent en ASCII (`Projet par defaut`).
+
+**Correctifs finalement appliqués** (l'état actuel du projet) :
+
+- Dossier parent renommé : `Projet par défaut` → **`Projet par defaut`** — ninja 1.13.2 décode les chemins en UTF-8 strict et échouait avec « Illegal byte sequence » sur le `é` ; le renommage supprime la cause à la racine (les réglages ci-dessus restent en place par sécurité).
+- **`LongPathsEnabled=1`** dans `HKLM\SYSTEM\CurrentControlSet\Control\FileSystem` (commande exécutée en administrateur) : lève la limite MAX_PATH de 260 caractères, sinon ninja échoue avec `Stat(...): Filename longer than 260 characters` (le chemin complet des objets C++ dépasse 390 caractères).
+- **`ninja.exe` remplacé dans le SDK par ninja 1.13.2** (`%LOCALAPPDATA%\Android\Sdk\cmake\3.22.1\bin\ninja.exe` ; original conservé en `ninja.exe.bak-1.10.2`) : le ninja embarqué 1.10.2 refuse les chemins plus longs que 260 caractères.
+- Si VS Code ou des terminaux verrouillent le dossier lors d'un renommage, les fermer d'abord (un handle sans partage-écriture sur un sous-dossier bloque le renommage de l'ancêtre).
+
+## Tests
+
+```powershell
+npm run lint                # ESLint
+npx tsc --noEmit            # typage TypeScript
+npm test                    # Jest (rendu de l'application)
+node peer_signal_test.js    # signalisation PeerJS (HTTP + WS) contre le backend lancé
+node socket_ring_test.js    # sonnerie d'appel : relais + appartenance au ticket (E2E)
 ```
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+Les deux scripts Node supposent le backend démarré sur `:4000` et des comptes de test présents en base (`client17875@test.fr`, `client12514@test.fr` / `Passw0rd!`).
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+## Dépannage (retour d'expérience démo)
 
-## Step 3: Modify your app
+- **App bloquée sur « Reloading… »** = famine de la **mémoire hôte** (pas Metro). Vérifier `FreePhysicalMemory` ≥ ~1,5 Go ; fermer 2ᵉ émulateur / builds Gradle en cours. Symptômes logcat : `loadJSBundleFromMetro` sans jamais `Running "AssistIT"`, images sautées (194 frames), horloge de la status bar figée. Dès que la mémoire remonte, l'app charge en ~6 s.
+- **Démo à l'épreuve de Metro** : build release (bundle JS embarqué, zéro Metro) :
+  ```powershell
+  cd android
+  .\gradlew.bat app:assembleRelease   # ~4 min en incrémental (51 min au 1er build)
+  adb install -r app\build\outputs\apk\release\app-release.apk
+  ```
+  La release est signée avec le keystore debug et sans minification → installation directe par-dessus le build debug, session conservée. Metro peut rester éteint : preuve validée (login + tickets + socket sur `localhost:4000` via tunnels, Metro OFF).
+- **Tunnels `adb reverse` perdus** (redémarrage adb/émulateur) : relancer `setup_tunnels.ps1`. Sans eux, l'app release ne joint ni l'API (4000) ni MinIO (9000). Contrôle : `adb -s emulator-5554 reverse --list`.
+- **Capture d'écran « figée » / horloge gelée** = écran en veille (le screencap renvoie la dernière image) : `adb shell input keyevent KEYCODE_WAKEUP`, puis vérifier `dumpsys power | grep mWakefulness`. Timeout écran : `adb shell settings put system screen_off_timeout 1800000`.
+- **`adb shell input text` perd des caractères** dans les `TextInput` de React Native : taper par blocs courts (≤4 car.) avec ~1 s de pause, attendre ~8 s que l'appareil stabilise, puis capturer. Pour un mot de passe non vérifiable (points), solution de contournement validée : hash temporaire d'un caractère en base SQL, connexion, puis restauration du hash d'origine (la session JWT reste valable).
+- **Login 500 côté backend** : l'API attend `mot_de_passe` (français), pas `password` — `bcrypt.compare` reçoit `undefined` et plante (robustesse à améliorer : valider les champs manquants en 400).
+- **Les `console.error` d'écran sont invisibles en release** : se fier à `adb logcat -s ReactNativeJS` (les `console.log` type `🔌 Socket connecté` passent bien).
 
-Now that you have successfully run the app, let's make changes!
+## Notes de production
 
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
-
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+- **HTTPS / TLS** : en développement, tout tourne en HTTP. En production, placer un reverse-proxy (nginx/Caddy) devant le port 4000 avec certificat TLS ; PeerJS et Socket.IO passent alors automatiquement en `wss://` (côté mobile, passer `secure: true` dans `src/config/api.ts`).
+- **MinIO** : bucket `assistit-files` en lecture publique pour simplifier les tests ; restreindre en écriture/lecture privée signée en production.
+- **Clé de signature Android** : la build de debug utilise la keystore de debug ; fournir une keystore de release pour un APK de production.

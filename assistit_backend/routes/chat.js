@@ -5,9 +5,22 @@ const { authMiddleware } = require('../middleware/auth');
 const router = express.Router();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
+async function canAccessTicket(ticketId, userId) {
+  const result = await pool.query(
+    `SELECT 1 FROM tickets
+     WHERE id = $1 AND (client_id = $2 OR technicien_id = $2)`,
+    [ticketId, userId],
+  );
+  return result.rowCount > 0;
+}
+
 // Récupérer les messages d'un ticket
 router.get('/:ticketId', authMiddleware, async (req, res) => {
   try {
+    if (!(await canAccessTicket(req.params.ticketId, req.user.id))) {
+      return res.status(403).json({ error: 'Accès refusé' });
+    }
+
     const result = await pool.query(
       `SELECT m.*, u.nom as expediteur_nom, u.role as expediteur_role
        FROM messages m
@@ -30,6 +43,10 @@ router.post('/:ticketId', authMiddleware, async (req, res) => {
     const { contenu } = req.body;
     if (!contenu || !contenu.trim()) {
       return res.status(400).json({ error: 'Message vide' });
+    }
+
+    if (!(await canAccessTicket(req.params.ticketId, req.user.id))) {
+      return res.status(403).json({ error: 'Accès refusé' });
     }
 
     const result = await pool.query(
