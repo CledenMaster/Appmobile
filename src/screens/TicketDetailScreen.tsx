@@ -66,6 +66,10 @@ const TicketDetailScreen = ({ route, navigation }: any) => {
   // L'autre partie du ticket = interlocuteur des appels
   const targetUserId = isTechnicien ? ticket.client_id : ticket.technicien_id;
   const canCall = ticket.status === 'en_cours' && !!targetUserId;
+  // canAccessTicket() n'accepte que client_id / technicien_id. Tant que le
+  // technicien n'est pas attribué (ticket encore en_attente), son accès est
+  // refusé en 403 : on n'affiche donc pas un bouton qui mène dans un mur.
+  const canChat = isTechnicien ? !!ticket.technicien_id : true;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -86,11 +90,13 @@ const TicketDetailScreen = ({ route, navigation }: any) => {
       </View>
 
       <View style={styles.actions}>
-        <TouchableOpacity style={[styles.actionBtn, styles.actionChat]}
-          onPress={() => navigation.navigate('Chat', { ticketId: ticket.id })}>
-          <Icon name="chat" size={20} color="#fff" />
-          <Text style={styles.actionText}>Chat</Text>
-        </TouchableOpacity>
+        {canChat && (
+          <TouchableOpacity style={[styles.actionBtn, styles.actionChat]}
+            onPress={() => navigation.navigate('Chat', { ticketId: ticket.id })}>
+            <Icon name="chat" size={20} color="#fff" />
+            <Text style={styles.actionText}>Chat</Text>
+          </TouchableOpacity>
+        )}
 
         {canCall && (
           <>

@@ -166,10 +166,14 @@ router.post('/:id/close', authMiddleware, async (req, res) => {
 
     // Enregistrer l'intervention « chat » couvrant toute la durée du ticket,
     // avec une durée réelle (sinon l'historique affiche une durée vide).
+    // $2 doit être casté `timestamp` aux deux endroits : PostgreSQL déduit un type
+    // par occurrence du paramètre, et un mélange `timestamp` (colonne date_debut)
+    // / `timestamptz` (via NOW()) levait 42P08 "inconsistent types deduced for
+    // parameter $2" — l'UPDATE passait, l'INSERT plantait et le client recevait 500.
     await pool.query(
       `INSERT INTO interventions (ticket_id, type, date_debut, date_fin, duree_secondes)
-       VALUES ($1, 'chat', $2, NOW(),
-               GREATEST(EXTRACT(EPOCH FROM (NOW() - $2::timestamptz))::int, 0))`,
+       VALUES ($1, 'chat', $2::timestamp, NOW(),
+               GREATEST(EXTRACT(EPOCH FROM (NOW() - $2::timestamp))::int, 0))`,
       [req.params.id, result.rows[0].created_at]
     );
 

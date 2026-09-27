@@ -15,12 +15,25 @@ const createChatHeaderRight = (navigation: any, ticketId: any) => () => (
   </TouchableOpacity>
 );
 
+// Message lisible pour une requête en échec. Sans ça, un 403 (ticket non encore
+// accepté) laissait le chat vide sans aucune explication.
+const describeApiError = (e: any): string => {
+  if (e?.response?.status === 403) {
+    return "Accès refusé : ce ticket ne vous est pas encore attribué.";
+  }
+  if (e?.response) {
+    return 'Le serveur a répondu une erreur. Réessayez.';
+  }
+  return 'Impossible de joindre le serveur. Vérifiez votre connexion.';
+};
+
 const ChatScreen = ({ route, navigation }: any) => {
   const { ticketId } = route.params;
   const { user, socket } = useAuth();
   const [messages, setMessages] = useState<any[]>([]);
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
   useEffect(() => {
@@ -31,10 +44,12 @@ const ChatScreen = ({ route, navigation }: any) => {
 
   const loadMessages = useCallback(async () => {
     try {
+      setError(null);
       const res = await chatAPI.getMessages(ticketId);
       setMessages(res.data);
     } catch (e) {
       console.error(e);
+      setError(describeApiError(e));
     } finally {
       setLoading(false);
     }
@@ -75,6 +90,7 @@ const ChatScreen = ({ route, navigation }: any) => {
     } catch (e) {
       console.error(e);
       setText(contenu);
+      setError(describeApiError(e));
     }
   };
 
@@ -95,6 +111,12 @@ const ChatScreen = ({ route, navigation }: any) => {
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={90}>
+      {error && (
+        <View style={styles.errorBox}>
+          <Icon name="alert-circle-outline" size={18} color="#ffb4b4" />
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      )}
       <FlatList
         ref={flatListRef}
         data={messages}
@@ -118,6 +140,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#1a1a2e' },
   headerBtn: { marginRight: 5, padding: 5 },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#1a1a2e' },
+  errorBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#3a1520', paddingHorizontal: 15, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#e94560' },
+  errorText: { flex: 1, color: '#ffb4b4', fontSize: 13, lineHeight: 18 },
   bubble: { maxWidth: '75%', padding: 12, borderRadius: 14, marginBottom: 10 },
   messagesContent: { padding: 15 },
   mine: { alignSelf: 'flex-end', backgroundColor: '#e94560', borderBottomRightRadius: 4 },
