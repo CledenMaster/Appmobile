@@ -1,0 +1,67 @@
+diff --git a/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/GetUserMediaImpl.java b/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/GetUserMediaImpl.java
+index e15cdb8..5cd54ed 100644
+--- a/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/GetUserMediaImpl.java
++++ b/node_modules/react-native-webrtc/android/src/main/java/com/oney/WebRTCModule/GetUserMediaImpl.java
+@@ -8,6 +8,8 @@ import android.media.projection.MediaProjectionConfig;
+ import android.util.DisplayMetrics;
+ import android.util.Log;
+ import android.os.Build;
++import android.os.Handler;
++import android.os.Looper;
+ 
+ import androidx.core.util.Consumer;
+ 
+@@ -34,7 +36,8 @@ import java.util.List;
+ import java.util.Map;
+ import java.util.Objects;
+ import java.util.UUID;
+-import java.util.concurrent.TimeUnit;
++import java.util.concurrent.CompletableFuture;
++import java.util.concurrent.TimeoutException;
+ import java.util.stream.Collectors;
+ 
+ /**
+@@ -49,6 +52,18 @@ class GetUserMediaImpl {
+ 
+     private static final int PERMISSION_REQUEST_CODE = (int) (Math.random() * Short.MAX_VALUE);
+ 
++    /**
++     * Maximum amount of time to wait for {@link MediaProjectionService} to start before
++     * giving up on the screen share request.
++     */
++    private static final long MEDIA_PROJECTION_LAUNCH_TIMEOUT_MS = 10_000L;
++
++    /**
++     * Main thread handler used to emulate {@code CompletableFuture#orTimeout} on API levels
++     * below 34, where that method does not exist yet.
++     */
++    private static final Handler MAIN_HANDLER = new Handler(Looper.getMainLooper());
++
+     private CameraEnumerator cameraEnumerator;
+     private final ReactApplicationContext reactContext;
+ 
+@@ -83,9 +98,21 @@ class GetUserMediaImpl {
+ 
+                     mediaProjectionPermissionResultData = data;
+ 
+-                    MediaProjectionService.launch(activity)
+-                        .orTimeout(10, TimeUnit.SECONDS)
+-                        .whenCompleteAsync((value, error) -> {
++                    CompletableFuture<Void> launchFuture =
++                        MediaProjectionService.launch(activity);
++
++                    // CompletableFuture#orTimeout only exists since Android 14 (API 34).
++                    // Calling it unconditionally throws a NoSuchMethodError on older
++                    // devices as soon as the user accepts the screen share prompt, which
++                    // kills the app. Emulate the same timeout with a main thread handler
++                    // so this stays compatible with every supported API level.
++                    Runnable launchTimeout = () -> launchFuture.completeExceptionally(
++                        new TimeoutException("Timed out starting MediaProjectionService"));
++                    MAIN_HANDLER.postDelayed(launchTimeout, MEDIA_PROJECTION_LAUNCH_TIMEOUT_MS);
++                    launchFuture.whenComplete(
++                        (value, error) -> MAIN_HANDLER.removeCallbacks(launchTimeout));
++
++                    launchFuture.whenCompleteAsync((value, error) -> {
+                             if (error != null) {
+                                 Log.e(TAG, "Failed to start MediaProjection service", error);
+                                 displayMediaPromise.reject("DOMException", "AbortError");

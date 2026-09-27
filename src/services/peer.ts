@@ -87,8 +87,8 @@ class PeerService {
               // localhost de l'hôte autrement en UDP — adb reverse = TCP).
               {
                 urls: [
-                  'turn:192.168.1.12:3478?transport=udp',
-                  'turn:192.168.1.12:3478?transport=tcp',
+                  'turn:192.168.1.22:3478?transport=udp',
+                  'turn:192.168.1.22:3478?transport=tcp',
                 ],
                 username: 'assistit',
                 credential: 'Passw0rdTURN',

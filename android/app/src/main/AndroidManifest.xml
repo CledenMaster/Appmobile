@@ -7,6 +7,12 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- Requis par Android 14+ (targetSdk 36) pour le partage d'ecran : le service
+         react-native-webrtc MediaProjectionService doit tourner en service de
+         premier plan avant createVirtualDisplay(), sinon la capture echoue en
+         silence et aucune image n'est produite. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
     <application
       android:name=".MainApplication"
