@@ -7,7 +7,7 @@
 // relancer le backend et rebuild l'APK.
 // Ancien mode tunnels (nécessite `adb reverse` + débogage USB activé) :
 //   DEV_HOST = 'localhost'  -> tcp:4000 API+socket, tcp:9000 MinIO, tcp:8081 Metro
-const DEV_HOST = '192.168.1.22';
+const DEV_HOST = '192.168.1.12';
 
 const API_BASE = `http://${DEV_HOST}:4000`;
 const SOCKET_URL = API_BASE;
